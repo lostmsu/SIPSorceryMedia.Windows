@@ -97,13 +97,13 @@ namespace test
                     }
                     taskRunning = true;
 
-                    var mediaFrameReference = sender.TryAcquireLatestFrame();
+                    using var mediaFrameReference = sender.TryAcquireLatestFrame();
                     var videoMediaFrame = mediaFrameReference?.VideoMediaFrame;
                     var softwareBitmap = videoMediaFrame?.SoftwareBitmap;
 
                     if (softwareBitmap == null && videoMediaFrame != null)
                     {
-                        var videoFrame = videoMediaFrame.GetVideoFrame();
+                        using var videoFrame = videoMediaFrame.GetVideoFrame();
                         softwareBitmap = await SoftwareBitmap.CreateCopyFromSurfaceAsync(videoFrame.Direct3DSurface);
                     }
 
@@ -111,9 +111,10 @@ namespace test
                     {
                         Console.WriteLine($"Software bitmap pixel fmt {softwareBitmap.BitmapPixelFormat}, alpha mode {softwareBitmap.BitmapAlphaMode}.");
 
-                        if (softwareBitmap.BitmapPixelFormat != Windows.Graphics.Imaging.BitmapPixelFormat.Bgra8 ||
-                            softwareBitmap.BitmapAlphaMode != Windows.Graphics.Imaging.BitmapAlphaMode.Premultiplied)
+                        if (softwareBitmap.BitmapPixelFormat != BitmapPixelFormat.Bgra8 ||
+                            softwareBitmap.BitmapAlphaMode != BitmapAlphaMode.Premultiplied)
                         {
+                            using var _ = softwareBitmap;
                             softwareBitmap = SoftwareBitmap.Convert(softwareBitmap, BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
                         }
 
@@ -133,20 +134,16 @@ namespace test
                                 _picBox.Size = new Size(width, height);
                             }
 
-                            using (BitmapBuffer buffer = backBuffer.LockBuffer(BitmapBufferAccessMode.Read))
+                            using BitmapBuffer buffer = backBuffer.LockBuffer(BitmapBufferAccessMode.Read);
+                            using var reference = buffer.CreateReference();
+                            unsafe
                             {
-                                using (var reference = buffer.CreateReference())
-                                {
-                                    unsafe
-                                    {
-                                        byte* dataInBytes;
-                                        uint capacity;
-                                        reference.As<IMemoryBufferByteAccess>().GetBuffer(out dataInBytes, out capacity);
+                                reference.As<IMemoryBufferByteAccess>().GetBuffer(out byte* dataInBytes, out uint capacity);
 
-                                        Bitmap bmpImage = new Bitmap((int)width, (int)height, (int)(capacity / height), PixelFormat.Format32bppArgb, (IntPtr)dataInBytes);
-                                        _picBox.Image = bmpImage;
-                                    }
-                                }
+                                var oldImage = _picBox.Image;
+                                var bmpImage = new Bitmap(width, height, (int)(capacity / height), PixelFormat.Format32bppArgb, (IntPtr)dataInBytes);
+                                _picBox.Image = bmpImage;
+                                oldImage?.Dispose();
                             }
                         }));
                     }
